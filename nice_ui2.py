@@ -272,5 +272,7 @@ def main_page():
         
     ui.label('Click "Start Webcam" to begin streaming').classes('text-sm text-gray-600 mt-2')
 
-# Run the app
-ui.run(title='Webcam Display', port=8080, reload=False)
+
+if __name__ == "__main__":
+    # Run the app
+    ui.run(title='Webcam Display', port=8080, reload=False)
