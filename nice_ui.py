@@ -25,6 +25,7 @@ class QwenGenerator:
             "使用者會提供圖片並詢問可見商品的數量。\n"
             "推理過程必須放在 <think></think> 裡，最終的數字答案需用阿拉伯數字回答，不包含單位並放在 <answer></answer> 裡。\n"
             "如果使用者使用繁體中文提問，請以繁體中文回答。\n"
+            "如果使用者使問的商品不在圖片中, 回答 <think>找不到商品</think><answer>0</answer> "
             "當問題中同時包含英文品牌名稱與中文語句時，請以繁體中文回答；品牌名稱保持原文不翻譯。\n"
         )
 
@@ -139,10 +140,27 @@ class WebcamDisplay:
         self.current_frame = None
         self.api_url = 'https://gillian-unhesitative-jestine.ngrok-free.dev/inference'
         
+
+    def find_cameras_id(self, max_tested=5):
+        first_available_id = -2
+        for i in range(max_tested):
+            cap = cv2.VideoCapture(i)
+            if cap.isOpened():
+                ret, frame = cap.read()
+                if ret:
+                    print(f"Camera index {i} is VALID")
+                    first_available_id = i
+                    break
+        cap.release()
+        return first_available_id
+
+
     def start_webcam(self):
         """Initialize and start the webcam"""
         if self.cap is None:
-            self.cap = cv2.VideoCapture(0)  # 0 is the default webcam
+            camera_id = self.find_cameras_id()
+            print(f"camera id: {camera_id}")
+            self.cap = cv2.VideoCapture(camera_id)  # 0 is the default webcam
         self.is_running = True
         
     def stop_webcam(self):
