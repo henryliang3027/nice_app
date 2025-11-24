@@ -54,6 +54,9 @@ class QwenGenerator:
         # 提取 <think></think> 內容
         think_match = re.search(r'<think>(.*?)</think>', text, re.DOTALL)
         reasoning = think_match.group(1).strip() if think_match else ""
+
+        if "盒" in reasoning:
+            reasoning = reasoning.replace("盒", "瓶")
         
         # 提取 <answer></answer> 內容
         answer_match = re.search(r'<answer>(.*?)</answer>', text, re.DOTALL)
@@ -375,6 +378,10 @@ def main_page():
         
         capture_btn.enable()
 
+
+    def fill_keyword(keyword):
+        question_input.value = keyword
+
     
     # Control buttons
     with ui.row().classes('gap-2 mt-4'):
@@ -391,6 +398,12 @@ def main_page():
             placeholder='圖中有幾瓶冷山茶王',
             value='圖中有幾瓶冷山茶王'
         ).classes('w-full')
+
+
+        keyword_btn1 = ui.button('圖中有幾瓶冷山茶王', on_click=lambda: fill_keyword("圖中有幾瓶冷山茶王")).classes('bg-blue-500')
+        keyword_btn2 = ui.button('圖中有幾瓶麥香綠茶', on_click=lambda: fill_keyword("圖中有幾瓶麥香綠茶")).classes('bg-blue-500')
+        keyword_btn3 = ui.button('圖中有幾瓶有藍色瓶蓋的飲料', on_click=lambda: fill_keyword("圖中有幾瓶有藍色瓶蓋的飲料")).classes('bg-blue-500')
+        keyword_btn4 = ui.button('圖中有幾瓶綠色包裝的麥香飲料', on_click=lambda: fill_keyword("圖中有幾瓶綠色包裝的麥香飲料")).classes('bg-blue-500')
         
         
     ui.label('Click "Start Webcam" to begin streaming').classes('text-sm text-gray-600 mt-2')
