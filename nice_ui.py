@@ -4,6 +4,7 @@ from peft import PeftModel
 from datetime import datetime
 from io import BytesIO
 from PIL import Image
+from opencc import OpenCC
 import torch
 import cv2
 import base64
@@ -11,6 +12,7 @@ import os
 import httpx
 import re
 import anyio
+
 
 # measure elapsed time
 import time
@@ -29,10 +31,12 @@ class QwenGenerator:
             "3. 僅在確認存在指定商品時，才進行數量統計。\n"
 
             "嚴禁以其他品牌或相似商品的數量作為回答。\n"
+            "嚴禁出現推理內容與答案數值不一致的情況，若判斷不存在則答案只能為 0，若判斷存在則答案不得為 0。\n"
 
             "推理過程放在 <think></think>，\n"
             "最終答案只允許阿拉伯數字並放在 <answer></answer> 裡。\n"
             "當問題中同時包含英文品牌名稱與中文語句時，請以繁體中文回答；品牌名稱保持原文不翻譯。\n"
+           
         )
 
         print("Loading processor...")
@@ -135,7 +139,6 @@ class QwenGenerator:
         print(finetuned_response)
 
         parsed_response = self.parse_response(finetuned_response)
-
         return parsed_response
 
 
@@ -260,19 +263,32 @@ class WebcamDisplay:
             print(f"API call failed: {e}")
             return None
 
+
+torch.manual_seed(0) 
+torch.cuda.manual_seed_all(0) 
+torch.backends.cudnn.deterministic = True 
+torch.backends.cudnn.benchmark = False
+
 # Create webcam instance
 webcam = WebcamDisplay()
 
 # Create QwenGenerator instance
 qwenGenerator = QwenGenerator()
 
+# Convert Simplified Chinese to Traditional Chinese
+cc = OpenCC('s2t')
+
+
+
+
 # Create the UI
 @ui.page('/')
 def main_page():
-    ui.label('NiceGUI Webcam Display').classes('text-2xl font-bold mb-4')
+
     
+
     # Create an interactive image element
-    img = ui.interactive_image().classes('w-full max-w-2xl border-4 border-gray-300 rounded-lg')
+    img = ui.interactive_image().classes('w-full max-w-3xl border-4 border-gray-300 rounded-lg')
 
     # Status label for capture feedback
     status_label = ui.label('').classes('text-sm mt-2')
@@ -281,7 +297,7 @@ def main_page():
     # API response display
     api_response_label = ui.label('').classes('text-sm mt-2 p-2 bg-gray-100 rounded whitespace-pre-line')
 
-    answer_label  = ui.label('').classes('text-3xl mt-2 p-2 text-green-700 rounded whitespace-pre-line')
+    answer_label  = ui.label('').classes('text-3xl p-2 text-green-700 rounded whitespace-pre-line')
     reasoning_label = ui.label('').classes('text-sm p-2 text-green-700 rounded whitespace-pre-line')
 
     answer_label.visible = False
@@ -328,6 +344,7 @@ def main_page():
         capture_btn.disable()
         answer_label.visible = False
         reasoning_label.visible = False
+        api_response_label.visible = True
         filename = webcam.capture_image()
         if filename:
             status_label.set_text(f'✓ Image saved: {filename}')
@@ -348,7 +365,7 @@ def main_page():
             question = '圖中有幾瓶冷山茶王'  # Default question
         
         # Show loading status
-        api_response_label.set_text('⏳ Sending to API...')
+        api_response_label.set_text('⏳ Processing...')
         api_response_label.classes('text-blue-600')
 
         # Call API
@@ -362,9 +379,13 @@ def main_page():
         print(f"Elapsed: {elapsed:.4f} seconds")
 
         if response:
-            reasoning = response['reasoning']
+            start = time.perf_counter()
+            reasoning = cc.convert(response['reasoning'])
+            elapsed = time.perf_counter() - start
+            print(f"convert elapsed: {elapsed:.4f} seconds")
             answer = response['answer']
             api_response_label.set_text('')
+            api_response_label.visible = False
             answer_label.visible = True
             reasoning_label.visible = True
             answer_label.set_text(f'Answer: {answer}')
@@ -401,9 +422,9 @@ def main_page():
 
 
         keyword_btn1 = ui.button('圖中有幾瓶冷山茶王', on_click=lambda: fill_keyword("圖中有幾瓶冷山茶王")).classes('bg-blue-500')
-        keyword_btn2 = ui.button('圖中有幾瓶麥香綠茶', on_click=lambda: fill_keyword("圖中有幾瓶麥香綠茶")).classes('bg-blue-500')
-        keyword_btn3 = ui.button('圖中有幾瓶有藍色瓶蓋的飲料', on_click=lambda: fill_keyword("圖中有幾瓶有藍色瓶蓋的飲料")).classes('bg-blue-500')
-        keyword_btn4 = ui.button('圖中有幾瓶綠色包裝的麥香飲料', on_click=lambda: fill_keyword("圖中有幾瓶綠色包裝的麥香飲料")).classes('bg-blue-500')
+        keyword_btn2 = ui.button('圖中有幾瓶綠色包裝的麥香飲料', on_click=lambda: fill_keyword("圖中有幾瓶綠色包裝的麥香飲料")).classes('bg-blue-500')
+        # keyword_btn3 = ui.button('圖中有幾瓶包裝為麥香綠茶', on_click=lambda: fill_keyword("圖中有幾瓶包裝為麥香綠茶")).classes('bg-blue-500')
+        # keyword_btn4 = ui.button('圖中有幾瓶有藍色瓶蓋的飲料', on_click=lambda: fill_keyword("圖中有幾瓶有藍色瓶蓋的飲料")).classes('bg-blue-500')
         
         
     ui.label('Click "Start Webcam" to begin streaming').classes('text-sm text-gray-600 mt-2')
