@@ -12,7 +12,8 @@ import os
 import httpx
 import re
 import anyio
-
+import random
+import numpy as np
 
 # measure elapsed time
 import time
@@ -20,7 +21,7 @@ import time
 class QwenGenerator:
     def __init__(self):
         self.base_model_id = "/home/ubuntu/.cache/huggingface/hub/models--Qwen--Qwen2.5-VL-3B-Instruct/snapshots/66285546d2b821cf421d4f5eb2576359d3770cd3"
-        self.adapter_path = "./checkpoints/checkpoint-50240"
+        self.adapter_path = "./checkpoints/merged_model"
         
         self.system_prompt = (
             "你是一個專業的商品計數助手。\n"
@@ -40,19 +41,39 @@ class QwenGenerator:
         )
 
         print("Loading processor...")
-        self.processor = AutoProcessor.from_pretrained(self.base_model_id, use_fast=True, padding_side="left")
+        self.processor = AutoProcessor.from_pretrained(self.adapter_path, use_fast=True, padding_side="left")
 
         print("Loading base model and LoRA adapter...")
-        self.base_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            self.base_model_id,
+        self.finetuned_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+            self.adapter_path,
             dtype=torch.bfloat16,
-            device_map="auto",
+            device_map={"": 0},
         )
+        
+        # self.finetuned_model = torch.compile(self.finetuned_model, mode="reduce-overhead")
+        
 
-        print("Loading LoRA adapter...")
-        self.finetuned_model = PeftModel.from_pretrained(self.base_model, self.adapter_path)
-        self.finetuned_model.eval()
-        print("Fine-tuned model loaded!")
+        # print("Loading LoRA adapter...")
+        # self.finetuned_model = PeftModel.from_pretrained(self.base_model, self.adapter_path)
+        # self.finetuned_model.eval()
+        # print("Fine-tuned model loaded!")
+
+        # print("Flash Attention")
+        # # Vision Encoder
+        # for name, module in self.base_model.named_modules():
+        #     module_type = type(module).__name__
+        #     if 'Attention' in module_type and 'visual' in name:
+        #         print(f"[Vision] {module_type}")
+        #         break
+
+        # # Language Model  
+        # for name, module in self.base_model.named_modules():
+        #     module_type = type(module).__name__
+        #     if 'Attention' in module_type and 'language_model' in name:
+        #         print(f"[LLM] {module_type}")
+        #         break
+
+
 
     def parse_response(self, text):
         # 提取 <think></think> 內容
@@ -81,21 +102,23 @@ class QwenGenerator:
             else:
                 new_height = max_size
                 new_width = int(width * (max_size / height))
-            return img_pil.resize((new_width, new_height), Image.LANCZOS)
+            return img_pil.resize((new_width, new_height), Image.BICUBIC)
         return img_pil
 
-    async def inference(self, image_path, question):
+    async def inference(self, image, question):
         return await anyio.to_thread.run_sync(
             self.inference_sync, 
-            image_path, 
+            image, 
             question
         )
 
-    def inference_sync(self, image_path, question):
+    def inference_sync(self, image, question):
 
         # read image from image path
-        img = Image.open(image_path).convert("RGB")
-        image = self.resize_image(img)
+        rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        pil_image = Image.fromarray(rgb_image)
+        # img = Image.open(image_path).convert("RGB")
+        image = self.resize_image(pil_image)
 
         # Create conversation
         conversation = [
@@ -124,9 +147,14 @@ class QwenGenerator:
             finetuned_output_ids = self.finetuned_model.generate(
                 **inputs_finetuned,
                 max_new_tokens=4096,
-                do_sample=False,
-                # temperature=0.7,
-                # top_p=0.95,
+                do_sample=False,        # 關閉隨機抽樣
+                num_beams=1,            # 關閉 beam search 隨機性
+                temperature=1.0,        # 無用，但明確設定
+                top_p=1.0,              # 無抽樣範圍
+                repetition_penalty=1.0, # 禁止重複懲罰引入隨機
+                early_stopping=True,    # 保持生成長度一致
+                pad_token_id=self.processor.tokenizer.pad_token_id, # 確保 padding 一致
+                eos_token_id=self.processor.tokenizer.eos_token_id,
             )
 
         # Decode fine-tuned model response
@@ -208,16 +236,16 @@ class WebcamDisplay:
     def capture_image(self):
         """Save the current frame as a JPEG image"""
         if self.current_frame is not None:
-            # Create captures directory if it doesn't exist
-            os.makedirs('captures', exist_ok=True)
+            # # Create captures directory if it doesn't exist
+            # os.makedirs('captures', exist_ok=True)
             
-            # Generate filename with timestamp
-            # timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f'captures/capture.jpg'
+            # # Generate filename with timestamp
+            # # timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            # filename = f'captures/capture.jpg'
             
-            # Save the image
-            cv2.imwrite(filename, self.current_frame)
-            return filename
+            # # Save the image
+            # cv2.imwrite(filename, self.current_frame)
+            return self.current_frame
         return None
 
 
@@ -264,10 +292,18 @@ class WebcamDisplay:
             return None
 
 
-torch.manual_seed(0) 
-torch.cuda.manual_seed_all(0) 
-torch.backends.cudnn.deterministic = True 
+os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+os.environ["PYTHONHASHSEED"] = "0"
+
+random.seed(0)
+np.random.seed(0)
+torch.manual_seed(0)
+torch.cuda.manual_seed(0)
+torch.cuda.manual_seed_all(0)
+
+torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
+torch.use_deterministic_algorithms(True)
 
 # Create webcam instance
 webcam = WebcamDisplay()
@@ -345,11 +381,11 @@ def main_page():
         answer_label.visible = False
         reasoning_label.visible = False
         api_response_label.visible = True
-        filename = webcam.capture_image()
-        if filename:
-            status_label.set_text(f'✓ Image saved: {filename}')
+        current_frame = webcam.capture_image()
+        if len(current_frame) > 0:
+            status_label.set_text(f'✓ Image saved')
             status_label.classes('text-green-600 font-semibold')
-            ui.notify(f'Image captured: {filename}', type='positive')
+            ui.notify(f'Image captured', type='positive')
         else:
             status_label.set_text('✗ No frame available to capture')
             status_label.classes('text-red-600')
@@ -373,7 +409,7 @@ def main_page():
         
         start = time.perf_counter()
         # inference
-        response = await qwenGenerator.inference(filename, question)
+        response = await qwenGenerator.inference(current_frame, question)
 
         elapsed = time.perf_counter() - start
         print(f"Elapsed: {elapsed:.4f} seconds")
