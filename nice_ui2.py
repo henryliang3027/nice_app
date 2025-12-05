@@ -20,7 +20,7 @@ import time
 
 class QwenGenerator:
     def __init__(self):
-        self.base_model_id = "/home/ubuntu/.cache/huggingface/hub/models--Qwen--Qwen2.5-VL-3B-Instruct/snapshots/66285546d2b821cf421d4f5eb2576359d3770cd3"
+        self.base_model_id = "Qwen/Qwen2.5-VL-3B-Instruct"
         self.adapter_path = "./checkpoints/checkpoint-50240"
         
         self.system_prompt = (

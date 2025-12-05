@@ -20,13 +20,13 @@ import time
 
 class QwenGenerator:
     def __init__(self):
-        self.base_model_id = "/home/ubuntu/.cache/huggingface/hub/models--Qwen--Qwen2.5-VL-3B-Instruct/snapshots/66285546d2b821cf421d4f5eb2576359d3770cd3"
-        self.adapter_path = "./checkpoints/merged_model"
-        
+        self.base_model_id = "/home/b40351/.cache/huggingface/hub/models--Qwen--Qwen2.5-VL-3B-Instruct/snapshots/66285546d2b821cf421d4f5eb2576359d3770cd3"
+        self.merged_model_path = "./checkpoints/merged_model"
+
         self.system_prompt = (
             "你是一個專業的商品計數助手。\n"
             "任務流程必須嚴格遵守：\n"
-            "1. 嚴格比對使用者指定的商品名稱與圖片中的商品，名稱不完全一致視為不存在。\n"
+            "1. 嚴格比對使用者指定的商品名稱與圖片中的商品，只要商品名稱包含使用者指定的關鍵字即視為符合(英文忽略大小寫)。\n"
             "2. 若不存在指定商品，無論圖片中有多少其他商品，一律輸出：\n"
             "<think>找不到商品</think><answer>0</answer>\n"
             "3. 僅在確認存在指定商品時，才進行數量統計。\n"
@@ -40,14 +40,16 @@ class QwenGenerator:
            
         )
 
+
         print("Loading processor...")
-        self.processor = AutoProcessor.from_pretrained(self.adapter_path, use_fast=True, padding_side="left")
+        self.processor = AutoProcessor.from_pretrained(self.merged_model_path, use_fast=True, padding_side="left", local_files_only=True)
 
         print("Loading base model and LoRA adapter...")
         self.finetuned_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            self.adapter_path,
+            self.merged_model_path,
             dtype=torch.bfloat16,
             device_map={"": 0},
+            local_files_only=True,
         )
         
         # self.finetuned_model = torch.compile(self.finetuned_model, mode="reduce-overhead")
@@ -196,7 +198,8 @@ class WebcamDisplay:
 
 
     def start_webcam(self):
-        """Initialize and start the webcam"""
+        """Initialize = self.find_cameras_id()
+            print(f"c and start the webcam"""
         if self.cap is None:
             camera_id = self.find_cameras_id()
             print(f"camera id: {camera_id}")
@@ -461,7 +464,7 @@ def main_page():
         keyword_btn2 = ui.button('圖中有幾瓶綠色包裝的麥香飲料', on_click=lambda: fill_keyword("圖中有幾瓶綠色包裝的麥香飲料")).classes('bg-blue-500')
         keyword_btn3 = ui.button('圖中有幾瓶包裝為麥香綠茶', on_click=lambda: fill_keyword("圖中有幾瓶包裝為麥香綠茶")).classes('bg-blue-500')
         keyword_btn4 = ui.button('圖中有幾瓶有藍色瓶蓋的飲料', on_click=lambda: fill_keyword("圖中有幾瓶有藍色瓶蓋的飲料")).classes('bg-blue-500')
-        
+        keyword_btn5 = ui.button('圖中有幾瓶包裝上標有 Green Tea', on_click=lambda: fill_keyword("圖中有幾瓶包裝上標有 Green Tea")).classes('bg-blue-500')
         
     ui.label('Click "Start Webcam" to begin streaming').classes('text-sm text-gray-600 mt-2')
 

@@ -3,7 +3,7 @@ from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
 from peft import PeftModel
 import torch
 
-base_model_id = "/home/ubuntu/.cache/huggingface/hub/models--Qwen--Qwen2.5-VL-3B-Instruct/snapshots/66285546d2b821cf421d4f5eb2576359d3770cd3"
+base_model_id = "Qwen/Qwen2.5-VL-3B-Instruct"
 adapter_path = "./checkpoints/checkpoint-50240"
 merged_path = "./checkpoints/merged_model"  # 儲存位置
 
