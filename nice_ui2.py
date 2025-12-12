@@ -7,7 +7,9 @@ import os
 import httpx
 import random
 import numpy as np
-from qwen_generator import QwenGenerator
+from ollama import chat
+import anyio
+from utils import cv_to_base64
 
 # measure elapsed time
 import time
@@ -42,6 +44,8 @@ class WebcamDisplay:
             camera_id = self.find_cameras_id()
             print(f"camera id: {camera_id}")
             self.cap = cv2.VideoCapture(camera_id)  # 0 is the default webcam
+            # self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1080)
+            # self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 768)
         self.is_running = True
         
     def stop_webcam(self):
@@ -77,93 +81,20 @@ class WebcamDisplay:
     def capture_image(self):
         """Save the current frame as a JPEG image"""
         if self.current_frame is not None:
-            # # Create captures directory if it doesn't exist
-            # os.makedirs('captures', exist_ok=True)
-            
-            # # Generate filename with timestamp
-            # # timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            # filename = f'captures/capture.jpg'
-            
-            # # Save the image
-            # cv2.imwrite(filename, self.current_frame)
             return self.current_frame
         return None
 
 
-    async def call_api(self, image_path, question, job_id='6391fccd-8d6c-472f-bce0-d0747b9140fe', checkpoint=''):
-        """
-        Call the FastAPI inference endpoint
-        
-        Args:
-            image_path: Path to the image file
-            question: Question text to send
-            job_id: Optional job ID (will generate UUID if not provided)
-            checkpoint: Checkpoint parameter (default empty string)
-            
-        Returns:
-            API response as dict or None if failed
-        """
-        if job_id is None:
-            job_id = str(uuid.uuid4())
-        
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                with open(image_path, 'rb') as f:
-                    files = {
-                        'image': (os.path.basename(image_path), f, 'image/jpeg')
-                    }
-                    data = {
-                        'question': question,
-                        'job_id': job_id,
-                        'checkpoint': checkpoint
-                    }
-                    
-                    response = await client.post(
-                        self.api_url,
-                        files=files,
-                        data=data,
-                        headers={'accept': 'application/json'}
-                    )
-                    
-                    response.raise_for_status()
-                    return response.json()
-                    
-        except Exception as e:
-            print(f"API call failed: {e}")
-            return None
-
-
-os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
-os.environ["PYTHONHASHSEED"] = "0"
-
-random.seed(0)
-np.random.seed(0)
-torch.manual_seed(0)
-torch.cuda.manual_seed(0)
-torch.cuda.manual_seed_all(0)
-
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
-torch.use_deterministic_algorithms(True)
 
 # Create webcam instance
 webcam = WebcamDisplay()
 
-# Create QwenGenerator instance
-qwenGenerator = QwenGenerator()
-
 # Convert Simplified Chinese to Traditional Chinese
 cc = OpenCC('s2t')
-
-
-
 
 # Create the UI
 @ui.page('/')
 def main_page():
-
-    
-
     # Create an interactive image element
     img = ui.interactive_image().classes('w-full max-w-3xl border-4 border-gray-300 rounded-lg')
 
@@ -216,6 +147,51 @@ def main_page():
         answer_label.visible = False
         reasoning_label.visible = False
 
+    async def inference(image, question):
+        return await anyio.to_thread.run_sync(
+            inference_sync, 
+            image, 
+            question
+        )
+
+    def inference_sync(image, question):
+        base64_image = cv_to_base64(image)
+        response = chat(
+            model='ministral-3:3b',
+            messages=[
+                {
+                'role': 'user',
+                'content': question,
+                'images': [base64_image],
+                }
+            ],
+        )
+
+        return response.message.content
+    
+
+    async def inference_from_image_path(image_path, question):
+        return await anyio.to_thread.run_sync(
+            inference_sync_from_image_path, 
+            image_path, 
+            question
+        )
+
+    def inference_sync_from_image_path(image_path, question):
+        response = chat(
+            model='ministral-3:3b',
+            messages=[
+                {
+                'role': 'user',
+                'content': question,
+                'images': [image_path],
+                }
+            ],
+        )
+
+        return response.message.content
+
+
     async def capture_frame():
         """Capture and save the current frame"""
         capture_btn.disable()
@@ -238,8 +214,8 @@ def main_page():
 
         # Get question from input
         question = question_input.value.strip()
-        if not question:
-            question = '圖中有幾瓶冷山茶王'  # Default question
+        print(question)
+
         
         # Show loading status
         api_response_label.set_text('⏳ Processing...')
@@ -250,23 +226,25 @@ def main_page():
         
         start = time.perf_counter()
         # inference
-        response = await qwenGenerator.inference(current_frame, question)
+        # response = await qwenGenerator.inference(current_frame, question)
+        # image_save_path = 'captures/capture.jpg'
+        # cv2.imwrite(image_save_path, current_frame)
+
+        response = await inference(current_frame, question)
 
         elapsed = time.perf_counter() - start
         print(f"Elapsed: {elapsed:.4f} seconds")
 
         if response:
             start = time.perf_counter()
-            reasoning = cc.convert(response['reasoning'])
+            response = cc.convert(response)
             elapsed = time.perf_counter() - start
             print(f"convert elapsed: {elapsed:.4f} seconds")
-            answer = response['answer']
             api_response_label.set_text('')
             api_response_label.visible = False
             answer_label.visible = True
             reasoning_label.visible = True
-            answer_label.set_text(f'Answer: {answer}')
-            reasoning_label.set_text(f'Reasoning: {reasoning}')
+            answer_label.set_text(response)
             api_response_label.classes('text-green-700 font-mono')
             ui.notify('API call successful', type='positive')
         else:
@@ -291,13 +269,13 @@ def main_page():
     # Question input and API call button
     with ui.column().classes('mt-4 w-full max-w-2xl gap-2'):
         ui.label('Question for API:').classes('font-semibold')
-        question_input = ui.input(
+        question_input = ui.textarea(
             label='Question', 
-            placeholder='圖中有幾瓶冷山茶王',
-            value='圖中有幾瓶冷山茶王'
+            placeholder='統計圖中的商品，回答格式：商品名稱，顏色特徵：數量',
+            value='統計圖中的商品，回答格式：商品名稱，顏色特徵：數量'
         ).classes('w-full')
 
-
+        keyword_btn1 = ui.button('統計圖中的商品，回答格式：商品名稱，顏色特徵：數量', on_click=lambda: fill_keyword("統計圖中的商品，回答格式：商品名稱，顏色特徵：數量")).classes('bg-blue-500')
         keyword_btn1 = ui.button('圖中有幾瓶冷山茶王', on_click=lambda: fill_keyword("圖中有幾瓶冷山茶王")).classes('bg-blue-500')
         keyword_btn2 = ui.button('圖中有幾瓶綠色包裝的麥香飲料', on_click=lambda: fill_keyword("圖中有幾瓶綠色包裝的麥香飲料")).classes('bg-blue-500')
         keyword_btn3 = ui.button('圖中有幾瓶包裝為麥香綠茶', on_click=lambda: fill_keyword("圖中有幾瓶包裝為麥香綠茶")).classes('bg-blue-500')
