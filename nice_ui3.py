@@ -11,16 +11,37 @@ from ollama import chat
 import anyio
 from utils import cv_to_base64
 from datetime import datetime
+from openai import OpenAI
 
 # measure elapsed time
 import time
+
+
+SYSTEM_PROMPT = """你是零售貨架的商品統計助手。
+
+輸出格式（CSV）：
+商品名稱,顏色,數量
+
+規則：
+
+1. 每個商品一行
+2. 使用最短的中文商品名稱
+3. 顏色用中文單字
+4. 數量只用整數
+
+範例：
+冷山茶王,藍,2
+飲冰室茶集,綠,1
+可口可樂,紅,3"""
+
 
 class WebcamDisplay:
     def __init__(self):
         self.cap = None
         self.is_running = False
         self.timer = None
-        self.current_frame = None
+        self.current_base64_frame = None
+        self.current_mat_frame = None
         self.api_url = 'https://gillian-unhesitative-jestine.ngrok-free.dev/inference'
         
 
@@ -61,30 +82,32 @@ class WebcamDisplay:
         if self.cap and self.is_running:
             ret, frame = self.cap.read()
             if ret:
-                # # Convert BGR to RGB
-                # frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                # # Convert to PIL Image
-                # pil_img = Image.fromarray(frame_rgb)
-                # # Convert to base64
-                # buffer = BytesIO()
-                # pil_img.save(buffer, format='JPEG', quality=85)
-                # img_str = base64.b64encode(buffer.getvalue()).decode()
 
-                self.current_frame = frame
+                self.current_mat_frame = frame
 
+                
+                
                 _, imencode_image = cv2.imencode('.jpg', frame)
                 base64_image = base64.b64encode(imencode_image)
                 base64_image_string = 'data:image/jpg;base64,' + base64_image.decode('ascii')
 
+                self.current_base64_frame = base64_image_string
+
+
                 return base64_image_string
         return None
 
-    def capture_image(self):
+    def capture_base64_image(self):
         """Save the current frame as a JPEG image"""
-        if self.current_frame is not None:
-            return self.current_frame
+        if self.current_base64_frame is not None:
+            return self.current_base64_frame
         return None
 
+    def capture_mat_image(self):
+        """Save the current frame as a JPEG image"""
+        if self.current_mat_frame is not None:
+            return self.current_mat_frame
+        return None
 
 
 # Create webcam instance
@@ -93,6 +116,11 @@ webcam = WebcamDisplay()
 # Convert Simplified Chinese to Traditional Chinese
 cc = OpenCC('s2t')
 
+client = OpenAI(
+    base_url="http://127.0.0.1:8080/v1",
+    api_key="no-key-needed"  # 本地通常不驗證，填任意字串即可
+)
+
 # Create the UI
 @ui.page('/')
 def main_page():
@@ -100,17 +128,23 @@ def main_page():
     img = ui.interactive_image().classes('w-full max-w-3xl border-4 border-gray-300 rounded-lg')
 
     # Status label for capture feedback
-    status_label = ui.label('').classes('text-sm mt-2')
+    status_label = ui.label('').classes('text-sm')
 
 
     # API response display
-    api_response_label = ui.label('').classes('text-sm mt-2 p-2 bg-gray-100 rounded whitespace-pre-line')
+    api_response_label = ui.label('').classes('text-sm bg-gray-100 rounded whitespace-pre-line')
 
-    answer_label  = ui.label('').classes('text-3xl p-2 text-green-700 rounded whitespace-pre-line')
-    reasoning_label = ui.label('').classes('text-sm p-2 text-green-700 rounded whitespace-pre-line')
+    answer_label  = ui.label('').classes('text-3xl text-green-700 rounded whitespace-pre-line')
+    time_elapse_label = ui.label('').classes('text-sm text-green-700 rounded whitespace-pre-line')
 
     answer_label.visible = False
-    reasoning_label.visible = False
+    time_elapse_label.visible = False
+
+    ori_answer_label  = ui.label('').classes('text-3xl text-green-700 rounded whitespace-pre-line')
+    ori_time_elapse_label = ui.label('').classes('text-sm text-green-700 rounded whitespace-pre-line')
+
+    ori_answer_label.visible = False
+    ori_time_elapse_label.visible = False
 
 
     def update_frame():
@@ -130,7 +164,7 @@ def main_page():
         status_label.set_text('')
         api_response_label.set_text('')
         answer_label.set_text('')
-        reasoning_label.set_text('')
+        time_elapse_label.set_text('')
         
     def stop_stream():
         """Stop the webcam stream"""
@@ -144,31 +178,31 @@ def main_page():
         status_label.set_text('')
         api_response_label.set_text('')
         answer_label.set_text('')
-        reasoning_label.set_text('')
+        time_elapse_label.set_text('')
         answer_label.visible = False
-        reasoning_label.visible = False
+        time_elapse_label.visible = False
 
-    async def inference(image, question):
+    async def inference(base64_image, question):
         return await anyio.to_thread.run_sync(
             inference_sync, 
-            image, 
+            base64_image, 
             question
         )
 
-    def inference_sync(image, question):
-        base64_image = cv_to_base64(image)
-        response = chat(
-            model='fministral3b:latest',
+    def inference_sync(base64_image, question):
+        resppnse = client.chat.completions.create(
+            model="ministral_custom",
             messages=[
-                {
-                'role': 'user',
-                'content': question,
-                'images': [base64_image],
-                }
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": [
+                    {"type": "text", "text": question},
+                    {"type": "image_url", "image_url": {"url": base64_image}},
+                ]},
             ],
+            temperature=0,
         )
 
-        return response.message.content
+        return resppnse.choices[0].message.content
     
 
     async def inference_from_image_path(image_path, question):
@@ -180,7 +214,7 @@ def main_page():
 
     def inference_sync_from_image_path(image_path, question):
         response = chat(
-            model='fministral3b:latest',
+            model='my_ministral3b:latest',
             messages=[
                 {
                 'role': 'user',
@@ -196,11 +230,15 @@ def main_page():
     async def capture_frame():
         """Capture and save the current frame"""
         capture_btn.disable()
+        ori_answer_label.visible = False
+        ori_time_elapse_label.visible = False
         answer_label.visible = False
-        reasoning_label.visible = False
+        time_elapse_label.visible = False
         api_response_label.visible = True
-        current_frame = webcam.capture_image()
-        if len(current_frame) > 0:
+        current_base64_frame = webcam.capture_base64_image()
+        current_mat_frame = webcam.capture_mat_image()
+
+        if len(current_base64_frame and current_mat_frame) > 0:
             status_label.set_text(f'✓ Image saved')
             status_label.classes('text-green-600 font-semibold')
             ui.notify(f'Image captured', type='positive')
@@ -228,26 +266,42 @@ def main_page():
         start = time.perf_counter()
         # inference
         # response = await qwenGenerator.inference(current_frame, question)
-        now = datetime.now()
-        formatted = now.strftime("%Y-%m-%d-%H:%M:%S")
-        image_save_path = f'captures/capture_{formatted}.jpg'
-        cv2.imwrite(image_save_path, current_frame)
 
-        response = await inference_from_image_path(image_save_path, question)
+
+
+
+        response = await inference(current_base64_frame, question)
 
         elapsed = time.perf_counter() - start
         print(f"Elapsed: {elapsed:.4f} seconds")
 
+        now = datetime.now()
+        formatted = now.strftime("%Y-%m-%d-%H:%M:%S")
+        image_save_path = f'captures/capture_{formatted}.jpg'
+        cv2.imwrite(image_save_path, current_mat_frame)
+
+        ori_start = time.perf_counter()
+        original_model_response = await inference_from_image_path(image_save_path, question)
+        ori_elapsed = time.perf_counter() - ori_start
+
         if response:
-            start = time.perf_counter()
-            response = cc.convert(response)
-            elapsed = time.perf_counter() - start
-            print(f"convert elapsed: {elapsed:.4f} seconds")
-            api_response_label.set_text('')
             api_response_label.visible = False
             answer_label.visible = True
-            reasoning_label.visible = True
+            time_elapse_label.visible = True
+            ori_answer_label.visible = True
+            ori_time_elapse_label.visible = True
+            start = time.perf_counter()
+            response = cc.convert(response)
+            convert_elapsed = time.perf_counter() - start
+            print(f"convert elapsed: {convert_elapsed:.4f} seconds")
+            api_response_label.set_text('')
+
+            time_elapse_label.set_text(f"{elapsed:.4f} 秒")
             answer_label.set_text(response)
+
+            ori_time_elapse_label.set_text(f"{ori_elapsed:.4f} 秒")
+            ori_answer_label.set_text(original_model_response)
+
             api_response_label.classes('text-green-700 font-mono')
             ui.notify('API call successful', type='positive')
         else:
@@ -270,8 +324,7 @@ def main_page():
         stop_btn.disable()
 
     # Question input and API call button
-    with ui.column().classes('mt-4 w-full max-w-2xl gap-2'):
-        ui.label('Question for API:').classes('font-semibold')
+    with ui.column().classes('w-full max-w-2xl gap-2'):
         question_input = ui.textarea(
             label='Question', 
             placeholder='統計圖中的商品',

@@ -1,5 +1,5 @@
 pyvenv/*
-captures/capture.jpg
+captures/*
 checkpoints/*
 __pycache__/*
 mvenv/*
