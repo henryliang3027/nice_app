@@ -263,41 +263,41 @@ def main_page():
         # Call API
         # response = await webcam.call_api(filename, question)
         
-        start = time.perf_counter()
+        # start = time.perf_counter()
         # inference
         # response = await qwenGenerator.inference(current_frame, question)
 
 
 
 
-        response = await inference(current_base64_frame, question)
+        # response = await inference(current_base64_frame, question)
 
-        elapsed = time.perf_counter() - start
-        print(f"Elapsed: {elapsed:.4f} seconds")
+        # elapsed = time.perf_counter() - start
+        # print(f"Elapsed: {elapsed:.4f} seconds")
 
-        # now = datetime.now()
-        # formatted = now.strftime("%Y-%m-%d-%H:%M:%S")
-        # image_save_path = f'captures/capture_{formatted}.jpg'
-        # cv2.imwrite(image_save_path, current_mat_frame)
+        now = datetime.now()
+        formatted = now.strftime("%Y-%m-%d-%H:%M:%S")
+        image_save_path = f'captures/capture_{formatted}.jpg'
+        cv2.imwrite(image_save_path, current_mat_frame)
 
         # ori_start = time.perf_counter()
         # original_model_response = await inference_from_image_path(image_save_path, question)
         # ori_elapsed = time.perf_counter() - ori_start
 
-        if response:
+        if True:
             api_response_label.visible = False
             answer_label.visible = True
             time_elapse_label.visible = True
-            # ori_answer_label.visible = True
-            # ori_time_elapse_label.visible = True
+            ori_answer_label.visible = True
+            ori_time_elapse_label.visible = True
             start = time.perf_counter()
-            response = cc.convert(response)
+            # response = cc.convert(response)
             convert_elapsed = time.perf_counter() - start
             print(f"convert elapsed: {convert_elapsed:.4f} seconds")
             api_response_label.set_text('')
 
-            time_elapse_label.set_text(f"{elapsed:.4f} 秒")
-            answer_label.set_text(response)
+            # time_elapse_label.set_text(f"{elapsed:.4f} 秒")
+            # answer_label.set_text(response)
 
             # ori_time_elapse_label.set_text(f"{ori_elapsed:.4f} 秒")
             # ori_answer_label.set_text(original_model_response)

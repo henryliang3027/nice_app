@@ -4,3 +4,4 @@ checkpoints/*
 __pycache__/*
 mvenv/*
 unsloth_compiled_cache/*
+date_region/*
